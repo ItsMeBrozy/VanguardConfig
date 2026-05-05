@@ -20,6 +20,27 @@ client.once('ready', () => {
   console.log(`Logged in as ${client.user.tag}`);
 });
 
+client.on('messageCreate', async (message) => {
+  if (message.author.bot) return;
+
+  if (message.content.startsWith('?activitycheck')) {
+    const args = message.content.slice('?activitycheck'.length).trim().split(/ +/);
+    const day = args[0];
+
+    if (!day) {
+      return message.reply('Please provide a day number. Example: `?activitycheck 1`');
+    }
+
+    try {
+      const activityMsg = await message.channel.send(`@everyone ActivityCheck ${day}`);
+      await activityMsg.react('✅');
+    } catch (error) {
+      console.error('Error sending activity check:', error);
+      message.reply('Error sending activity check. Ensure I have "Mention Everyone" permissions!');
+    }
+  }
+});
+
 client.on('error', (err) => {
   console.error('Discord client error:', err);
 });
