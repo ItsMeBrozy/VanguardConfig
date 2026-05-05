@@ -1,11 +1,16 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits, REST, Routes } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, Partials } = require('discord.js');
 
-const client = new Client({ intents: [
-  GatewayIntentBits.Guilds,
-  GatewayIntentBits.GuildMessages,
-  GatewayIntentBits.MessageContent
-] });
+const client = new Client({ 
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildMessageReactions
+  ],
+  partials: [Partials.Message, Partials.Channel, Partials.Reaction]
+});
 
 const TOKEN = process.env.BOT_TOKEN;
 if (!TOKEN) {
@@ -13,16 +18,18 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-// Define the activity check command
+// Storage for active checks: Map<messageId, {users: [], loopInterval: Timer, channelId: string}>
+const activeChecks = new Map();
+
 const commands = [
   {
     name: 'activitycheck',
-    description: 'Pings everyone for an activity check',
+    description: 'Starts a recurring activity check loop',
     options: [
       {
-        name: 'day',
+        name: 'loop',
         type: 3, // STRING
-        description: 'The day number',
+        description: 'Time loop (e.g., 1h, 24h, 1d)',
         required: true,
       },
     ],
@@ -32,34 +39,43 @@ const commands = [
 async function registerCommands() {
   const rest = new REST({ version: '10' }).setToken(TOKEN);
   const guildId = process.env.GUILD_ID;
-
   try {
     if (guildId) {
-      console.log(`Registering slash commands for GUILD: ${guildId} (Instant)`);
-      
-      // Clear global commands to prevent duplicates
       await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
-      
-      // Register guild-specific commands
-      await rest.put(
-        Routes.applicationGuildCommands(client.user.id, guildId),
-        { body: commands },
-      );
+      await rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: commands });
     } else {
-      console.log('Registering slash commands GLOBALLY (May take up to 1 hour)');
-      await rest.put(
-        Routes.applicationCommands(client.user.id),
-        { body: commands },
-      );
+      await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
     }
-    console.log('Successfully reloaded application (/) commands.');
+    console.log('Successfully reloaded (/) commands.');
   } catch (error) {
     console.error('Error registering slash commands:', error);
   }
 }
 
-// DEBUG: Log masked token to verify which one Railway is using
-console.log(`Attempting to login with token starting with ${TOKEN.substring(0, 4)}... and ending with ...${TOKEN.substring(TOKEN.length - 4)}`);
+function parseLoopTime(timeStr) {
+  const match = timeStr.match(/^(\d+)(h|d)$/i);
+  if (!match) return null;
+  const value = parseInt(match[1]);
+  const unit = match[2].toLowerCase();
+  return unit === 'h' ? value * 3600000 : value * 86400000;
+}
+
+async function sendActivityCheck(channel) {
+  const content = `# Vanguard FC | Activity Check\n\n**Fastest 5**\n(Waiting for reactions...)\n\n|| @everyone @here`;
+  try {
+    const msg = await channel.send(content);
+    await msg.react('✅');
+    
+    // Initialize tracking for this specific message
+    activeChecks.set(msg.id, {
+      users: [],
+      channelId: channel.id
+    });
+    return msg;
+  } catch (e) {
+    console.error('Failed to send activity check:', e);
+  }
+}
 
 client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
@@ -70,41 +86,63 @@ client.on('interactionCreate', async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
 
   if (interaction.commandName === 'activitycheck') {
-    const day = interaction.options.getString('day');
+    const loopStr = interaction.options.getString('loop');
+    const intervalMs = parseLoopTime(loopStr);
+
+    if (!intervalMs) {
+      return interaction.reply({ content: 'Invalid loop format! Use `1h` for 1 hour or `1d` for 1 day.', ephemeral: true });
+    }
+
     try {
-      const activityMsg = await interaction.channel.send(`@everyone ActivityCheck ${day}`);
-      await activityMsg.react('✅');
-      await interaction.reply({ content: `Activity check ${day} started!`, ephemeral: true });
+      await interaction.reply({ content: `Activity Check loop started every ${loopStr}!`, ephemeral: true });
+      
+      // Start the first one immediately
+      await sendActivityCheck(interaction.channel);
+
+      // Schedule the loop
+      setInterval(async () => {
+        await sendActivityCheck(interaction.channel);
+      }, intervalMs);
+
     } catch (error) {
-      console.error('Error sending slash activity check:', error);
-      await interaction.reply({ content: 'Error sending activity check. Check my permissions!', ephemeral: true });
+      console.error('Error starting loop:', error);
+      await interaction.reply({ content: 'Error starting activity check loop.', ephemeral: true });
     }
   }
 });
 
-client.on('messageCreate', async (message) => {
-  if (message.author.bot) return;
+client.on('messageReactionAdd', async (reaction, user) => {
+  if (user.bot) return;
+  if (reaction.emoji.name !== '✅') return;
 
-  const prefix = ['?', '!'];
-  if (!prefix.some(p => message.content.startsWith(p))) return;
+  const checkData = activeChecks.get(reaction.message.id);
+  if (!checkData) return;
 
-  const content = message.content.slice(1).trim();
-  if (content.startsWith('activitycheck')) {
-    const args = content.slice('activitycheck'.length).trim().split(/ +/);
-    const day = args[0];
+  // Only track first 5 unique users
+  if (checkData.users.length < 5 && !checkData.users.includes(user.id)) {
+    checkData.users.push(user.id);
 
-    if (!day) {
-      return message.reply('Please provide a day number. Example: `?activitycheck 1` or `!activitycheck 1`');
-    }
-
+    const userMention = `<@${user.id}>`;
+    const userList = checkData.users.map((id, index) => `${index + 1}- <@${id}>`).join('\n\n');
+    
+    const newContent = `# Vanguard FC | Activity Check\n\n**Fastest 5**\n${userList}\n\n|| @everyone @here`;
+    
     try {
-      const activityMsg = await message.channel.send(`@everyone ActivityCheck ${day}`);
-      await activityMsg.react('✅');
-    } catch (error) {
-      console.error('Error sending prefix activity check:', error);
-      message.reply('Error sending activity check. Ensure I have "Mention Everyone" permissions!');
+      await reaction.message.edit(newContent);
+    } catch (e) {
+      console.error('Error updating activity check message:', e);
     }
   }
+});
+
+client.on('error', (err) => console.error('Discord client error:', err));
+client.login(TOKEN).catch(err => {
+  console.error('Failed to login:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, p) => {
+  console.error('Unhandled Rejection at:', p, 'reason:', reason);
 });
 
 client.on('error', (err) => {
