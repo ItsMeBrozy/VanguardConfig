@@ -34,6 +34,10 @@ const commands = [
       },
     ],
   },
+  {
+    name: 'stopactivitycheck',
+    description: 'Stops the activity check loop in this channel',
+  },
 ];
 
 async function registerCommands() {
@@ -133,6 +137,15 @@ client.on('interactionCreate', async (interaction) => {
     } catch (error) {
       console.error('Error starting loop:', error);
     }
+  } else if (interaction.commandName === 'stopactivitycheck') {
+    const data = loadData();
+    if (data.loops[interaction.channel.id]) {
+      delete data.loops[interaction.channel.id];
+      saveData(data);
+      await interaction.reply({ content: 'Activity check loop stopped for this channel.', ephemeral: true });
+    } else {
+      await interaction.reply({ content: 'No active loop found for this channel.', ephemeral: true });
+    }
   }
 });
 
@@ -140,8 +153,26 @@ client.on('messageReactionAdd', async (reaction, user) => {
   if (user.bot) return;
   if (reaction.emoji.name !== '✅') return;
 
+  // Ensure message is fully loaded (important for partials)
+  if (reaction.partial) {
+    try {
+      await reaction.fetch();
+    } catch (error) {
+      console.error('Error fetching reaction:', error);
+      return;
+    }
+  }
+
   const data = loadData();
-  const checkData = data.checks[reaction.message.id];
+  let checkData = data.checks[reaction.message.id];
+  
+  // Recovery: If message exists but isn't in DB, check if it's an Activity Check message
+  if (!checkData && reaction.message.content.includes('Vanguard FC | Activity Check')) {
+    console.log(`Recovering check for message ${reaction.message.id}`);
+    checkData = { users: [] };
+    data.checks[reaction.message.id] = checkData;
+  }
+
   if (!checkData) return;
 
   if (checkData.users.length < 5 && !checkData.users.includes(user.id)) {
