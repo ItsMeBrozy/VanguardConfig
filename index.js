@@ -36,6 +36,11 @@ async function registerCommands() {
   try {
     if (guildId) {
       console.log(`Registering slash commands for GUILD: ${guildId} (Instant)`);
+      
+      // Clear global commands to prevent duplicates
+      await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
+      
+      // Register guild-specific commands
       await rest.put(
         Routes.applicationGuildCommands(client.user.id, guildId),
         { body: commands },
