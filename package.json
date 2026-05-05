@@ -3,8 +3,11 @@
   "version": "1.0.0",
   "description": "Discord bot deployment ready for Railway",
   "main": "index.js",
+  "engines": {
+    "node": "18.x"
+  },
   "scripts": {
-    "start": "node src/index.js",
+    "start": "node index.js",
     "test": "echo \"No tests\""
   },
   "dependencies": {
