@@ -31,12 +31,22 @@ const commands = [
 
 async function registerCommands() {
   const rest = new REST({ version: '10' }).setToken(TOKEN);
+  const guildId = process.env.GUILD_ID;
+
   try {
-    console.log('Started refreshing application (/) commands.');
-    await rest.put(
-      Routes.applicationCommands(client.user.id),
-      { body: commands },
-    );
+    if (guildId) {
+      console.log(`Registering slash commands for GUILD: ${guildId} (Instant)`);
+      await rest.put(
+        Routes.applicationGuildCommands(client.user.id, guildId),
+        { body: commands },
+      );
+    } else {
+      console.log('Registering slash commands GLOBALLY (May take up to 1 hour)');
+      await rest.put(
+        Routes.applicationCommands(client.user.id),
+        { body: commands },
+      );
+    }
     console.log('Successfully reloaded application (/) commands.');
   } catch (error) {
     console.error('Error registering slash commands:', error);
