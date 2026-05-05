@@ -1,0 +1,14 @@
+{
+  "name": "discord-bot-railway",
+  "version": "1.0.0",
+  "description": "Discord bot deployment ready for Railway",
+  "main": "index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "echo \"No tests\""
+  },
+  "dependencies": {
+    "discord.js": "^14.0.0",
+    "dotenv": "^16.0.0"
+  }
+}
