@@ -1,9 +1,7 @@
 require('dotenv').config();
 const { Client, GatewayIntentBits, REST, Routes, Partials } = require('discord.js');
-const fs = require('fs');
-const path = require('path');
+const { loadData, saveData } = require('./database');
 
-const DATA_FILE = path.join(__dirname, 'data.json');
 const ALLOWED_USERS = ['1479214179146535096', '1495471090904993940'];
 
 const client = new Client({ 
@@ -23,20 +21,6 @@ if (!TOKEN) {
   process.exit(1);
 }
 
-// Persistence Helpers
-function loadData() {
-  if (!fs.existsSync(DATA_FILE)) return { loops: {}, checks: {} };
-  try {
-    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-  } catch {
-    return { loops: {}, checks: {} };
-  }
-}
-
-function saveData(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
-}
-
 const commands = [
   {
     name: 'activitycheck',
@@ -45,7 +29,7 @@ const commands = [
       {
         name: 'loop',
         type: 3, // STRING
-        description: 'Time loop (e.g., 1h, 24h, 1d)',
+        description: 'Time loop (e.g., 5s, 1m, 1h, 1d)',
         required: true,
       },
     ],
@@ -68,11 +52,19 @@ async function registerCommands() {
 }
 
 function parseLoopTime(timeStr) {
-  const match = timeStr.match(/^(\d+)(h|d)$/i);
+  const match = timeStr.match(/^(\d+)(s|m|h|d)$/i);
   if (!match) return null;
   const value = parseInt(match[1]);
   const unit = match[2].toLowerCase();
-  return unit === 'h' ? value * 3600000 : value * 86400000;
+  
+  const multipliers = {
+    's': 1000,
+    'm': 60000,
+    'h': 3600000,
+    'd': 86400000
+  };
+  
+  return value * multipliers[unit];
 }
 
 async function sendActivityCheck(channel) {
@@ -94,7 +86,7 @@ client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
   await registerCommands();
 
-  // Scheduler: Check every minute if a loop is due
+  // Scheduler: Check every second for loops (required for 5s intervals)
   setInterval(async () => {
     const data = loadData();
     const now = Date.now();
@@ -109,7 +101,7 @@ client.once('ready', async () => {
         }
       }
     }
-  }, 60000);
+  }, 1000);
 });
 
 client.on('interactionCreate', async (interaction) => {
@@ -124,7 +116,7 @@ client.on('interactionCreate', async (interaction) => {
     const intervalMs = parseLoopTime(loopStr);
 
     if (!intervalMs) {
-      return interaction.reply({ content: 'Invalid loop format! Use `1h` or `1d`.', ephemeral: true });
+      return interaction.reply({ content: 'Invalid loop format! Use `5s`, `1m`, `1h` or `1d`.', ephemeral: true });
     }
 
     try {
