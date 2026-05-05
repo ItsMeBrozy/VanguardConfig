@@ -1,5 +1,5 @@
 require('dotenv').config();
-const { Client, GatewayIntentBits } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes } = require('discord.js');
 
 const client = new Client({ intents: [
   GatewayIntentBits.Guilds,
@@ -13,29 +13,80 @@ if (!TOKEN) {
   process.exit(1);
 }
 
+// Define the activity check command
+const commands = [
+  {
+    name: 'activitycheck',
+    description: 'Pings everyone for an activity check',
+    options: [
+      {
+        name: 'day',
+        type: 3, // STRING
+        description: 'The day number',
+        required: true,
+      },
+    ],
+  },
+];
+
+async function registerCommands() {
+  const rest = new REST({ version: '10' }).setToken(TOKEN);
+  try {
+    console.log('Started refreshing application (/) commands.');
+    await rest.put(
+      Routes.applicationCommands(client.user.id),
+      { body: commands },
+    );
+    console.log('Successfully reloaded application (/) commands.');
+  } catch (error) {
+    console.error('Error registering slash commands:', error);
+  }
+}
+
 // DEBUG: Log masked token to verify which one Railway is using
 console.log(`Attempting to login with token starting with ${TOKEN.substring(0, 4)}... and ending with ...${TOKEN.substring(TOKEN.length - 4)}`);
 
-client.once('ready', () => {
+client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
+  await registerCommands();
+});
+
+client.on('interactionCreate', async (interaction) => {
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === 'activitycheck') {
+    const day = interaction.options.getString('day');
+    try {
+      const activityMsg = await interaction.channel.send(`@everyone ActivityCheck ${day}`);
+      await activityMsg.react('✅');
+      await interaction.reply({ content: `Activity check ${day} started!`, ephemeral: true });
+    } catch (error) {
+      console.error('Error sending slash activity check:', error);
+      await interaction.reply({ content: 'Error sending activity check. Check my permissions!', ephemeral: true });
+    }
+  }
 });
 
 client.on('messageCreate', async (message) => {
   if (message.author.bot) return;
 
-  if (message.content.startsWith('?activitycheck')) {
-    const args = message.content.slice('?activitycheck'.length).trim().split(/ +/);
+  const prefix = ['?', '!'];
+  if (!prefix.some(p => message.content.startsWith(p))) return;
+
+  const content = message.content.slice(1).trim();
+  if (content.startsWith('activitycheck')) {
+    const args = content.slice('activitycheck'.length).trim().split(/ +/);
     const day = args[0];
 
     if (!day) {
-      return message.reply('Please provide a day number. Example: `?activitycheck 1`');
+      return message.reply('Please provide a day number. Example: `?activitycheck 1` or `!activitycheck 1`');
     }
 
     try {
       const activityMsg = await message.channel.send(`@everyone ActivityCheck ${day}`);
       await activityMsg.react('✅');
     } catch (error) {
-      console.error('Error sending activity check:', error);
+      console.error('Error sending prefix activity check:', error);
       message.reply('Error sending activity check. Ensure I have "Mention Everyone" permissions!');
     }
   }
