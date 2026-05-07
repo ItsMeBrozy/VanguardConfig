@@ -387,6 +387,24 @@ client.on('guildMemberAdd', async (member) => {
   }
 });
 
+client.on('guildMemberRemove', async (member) => {
+  console.log(`[MEMBER LEAVE] ${member.user.username} left or was kicked.`);
+  const dbData = loadData();
+  let updated = false;
+  
+  dbData.applications.forEach(app => {
+    if (app.userId === member.user.id && app.status !== 'left') {
+      app.status = 'left';
+      updated = true;
+    }
+  });
+
+  if (updated) {
+    saveData(dbData);
+    console.log(`[MEMBER LEAVE] Updated applications for ${member.user.username} to Kicked/Left status.`);
+  }
+});
+
 client.on('messageReactionAdd', async (reaction, user) => {
   if (user.bot) return;
   if (reaction.emoji.name !== '✅') return;
