@@ -1,209 +1,69 @@
-require('dotenv').config();
-const { Client, GatewayIntentBits, REST, Routes, Partials } = require('discord.js');
-const { loadData, saveData } = require('./database');
+const express = require('express');
+const cors = require('cors');
+const bodyParser = require('body-parser');
+const fs = require('fs');
+const path = require('path');
 
-const ALLOWED_USERS = ['1479214179146535096', '1495471090904993940'];
+const app = express();
+const PORT = process.env.PORT || 7860;
+const DB_PATH = path.join(__dirname, 'db.json');
 
-const client = new Client({ 
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessageReactions
-  ],
-  partials: [Partials.Message, Partials.Channel, Partials.Reaction]
-});
+app.use(cors());
+app.use(bodyParser.json());
+app.use(express.static(path.join(__dirname)));
 
-const TOKEN = process.env.BOT_TOKEN;
-if (!TOKEN) {
-  console.error('BOT_TOKEN is not defined.');
-  process.exit(1);
+// Initialize database
+if (!fs.existsSync(DB_PATH)) {
+    fs.writeFileSync(DB_PATH, JSON.stringify({ applications: [] }, null, 2));
 }
 
-const commands = [
-  {
-    name: 'activitycheck',
-    description: 'Starts a recurring activity check loop',
-    options: [
-      {
-        name: 'loop',
-        type: 3, // STRING
-        description: 'Time loop (e.g., 5s, 1m, 1h, 1d)',
-        required: true,
-      },
-    ],
-  },
-  {
-    name: 'stopactivitycheck',
-    description: 'Stops the activity check loop in this channel',
-  },
-];
+const getDB = () => JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
+const saveDB = (data) => fs.writeFileSync(DB_PATH, JSON.stringify(data, null, 2));
 
-async function registerCommands() {
-  const rest = new REST({ version: '10' }).setToken(TOKEN);
-  const guildId = process.env.GUILD_ID;
-  try {
-    if (guildId) {
-      await rest.put(Routes.applicationCommands(client.user.id), { body: [] });
-      await rest.put(Routes.applicationGuildCommands(client.user.id, guildId), { body: commands });
+// API Endpoints
+app.get('/api/applications', (req, res) => {
+    const db = getDB();
+    res.json(db.applications);
+});
+
+app.post('/api/applications', (req, res) => {
+    const { userId, username, displayName, status, reason, timestamp, moderator, messageId } = req.body;
+    const db = getDB();
+    
+    // Check if we are updating an existing application by messageId (sent by bot)
+    const existingIndex = db.applications.findIndex(app => app.messageId === messageId && messageId !== undefined);
+
+    if (existingIndex !== -1) {
+        // Update existing
+        db.applications[existingIndex] = {
+            ...db.applications[existingIndex],
+            status,
+            reason: reason || db.applications[existingIndex].reason,
+            moderator: moderator || db.applications[existingIndex].moderator,
+            timestamp: timestamp || new Date().toISOString()
+        };
+        saveDB(db);
+        return res.status(200).json(db.applications[existingIndex]);
     } else {
-      await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+        // Create new
+        const newApp = {
+            id: Date.now().toString(),
+            userId,
+            username,
+            displayName,
+            status: status || 'pending',
+            reason: reason || 'No reason provided',
+            timestamp: timestamp || new Date().toISOString(),
+            moderator: moderator || 'N/A',
+            messageId
+        };
+
+        db.applications.push(newApp);
+        saveDB(db);
+        res.status(201).json(newApp);
     }
-  } catch (error) {
-    console.error('Error registering slash commands:', error);
-  }
-}
-
-function parseLoopTime(timeStr) {
-  const match = timeStr.match(/^(\d+)(s|m|h|d)$/i);
-  if (!match) return null;
-  const value = parseInt(match[1]);
-  const unit = match[2].toLowerCase();
-  
-  const multipliers = {
-    's': 1000,
-    'm': 60000,
-    'h': 3600000,
-    'd': 86400000
-  };
-  
-  return value * multipliers[unit];
-}
-
-async function sendActivityCheck(channel) {
-  const content = `# Vanguard FC | Activity Check\n\n**Fastest 5**\n(Waiting for reactions...)\n\n|| @everyone @here ||`;
-  try {
-    const msg = await channel.send(content);
-    await msg.react('✅');
-    
-    const data = loadData();
-    data.checks[msg.id] = { users: [] };
-    saveData(data);
-    return msg;
-  } catch (e) {
-    console.error('Failed to send activity check:', e);
-  }
-}
-
-client.once('ready', async () => {
-  console.log(`Logged in as ${client.user.tag}`);
-  await registerCommands();
-
-  // Scheduler: Check every second for loops (required for 5s intervals)
-  setInterval(async () => {
-    const data = loadData();
-    const now = Date.now();
-    
-    for (const [channelId, config] of Object.entries(data.loops)) {
-      if (now >= config.nextRun) {
-        const channel = await client.channels.fetch(channelId).catch(() => null);
-        if (channel) {
-          await sendActivityCheck(channel);
-          data.loops[channelId].nextRun = now + config.intervalMs;
-          saveData(data);
-        }
-      }
-    }
-  }, 1000);
 });
 
-client.on('interactionCreate', async (interaction) => {
-  if (!interaction.isChatInputCommand()) return;
-
-  if (!ALLOWED_USERS.includes(interaction.user.id)) {
-    return interaction.reply({ content: 'You do not have permission to use this command.', ephemeral: true });
-  }
-
-  if (interaction.commandName === 'activitycheck') {
-    const loopStr = interaction.options.getString('loop');
-    const intervalMs = parseLoopTime(loopStr);
-
-    if (!intervalMs) {
-      return interaction.reply({ content: 'Invalid loop format! Use `5s`, `1m`, `1h` or `1d`.', ephemeral: true });
-    }
-
-    try {
-      await interaction.reply({ content: `Activity Check loop started every ${loopStr}!`, ephemeral: true });
-      await sendActivityCheck(interaction.channel);
-
-      const data = loadData();
-      data.loops[interaction.channel.id] = {
-        intervalMs: intervalMs,
-        nextRun: Date.now() + intervalMs
-      };
-      saveData(data);
-
-    } catch (error) {
-      console.error('Error starting loop:', error);
-    }
-  } else if (interaction.commandName === 'stopactivitycheck') {
-    const data = loadData();
-    if (data.loops[interaction.channel.id]) {
-      delete data.loops[interaction.channel.id];
-      saveData(data);
-      await interaction.reply({ content: 'Activity check loop stopped for this channel.', ephemeral: true });
-    } else {
-      await interaction.reply({ content: 'No active loop found for this channel.', ephemeral: true });
-    }
-  }
-});
-
-client.on('messageReactionAdd', async (reaction, user) => {
-  if (user.bot) return;
-  if (reaction.emoji.name !== '✅') return;
-
-  // Ensure message is fully loaded (important for partials)
-  if (reaction.partial) {
-    try {
-      await reaction.fetch();
-    } catch (error) {
-      console.error('Error fetching reaction:', error);
-      return;
-    }
-  }
-
-  const data = loadData();
-  let checkData = data.checks[reaction.message.id];
-  
-  // Recovery: If message exists but isn't in DB, check if it's an Activity Check message
-  if (!checkData && reaction.message.content.includes('Vanguard FC | Activity Check')) {
-    console.log(`Recovering check for message ${reaction.message.id}`);
-    checkData = { users: [] };
-    data.checks[reaction.message.id] = checkData;
-  }
-
-  if (!checkData) return;
-
-  if (checkData.users.length < 5 && !checkData.users.includes(user.id)) {
-    checkData.users.push(user.id);
-    saveData(data);
-
-    const userList = checkData.users.map((id, index) => `${index + 1}- <@${id}>`).join('\n\n');
-    const newContent = `# Vanguard FC | Activity Check\n\n**Fastest 5**\n${userList}\n\n|| @everyone @here ||`;
-    
-    try {
-      await reaction.message.edit(newContent);
-    } catch (e) {
-      console.error('Error updating message:', e);
-    }
-  }
-});
-
-client.on('error', (err) => console.error('Discord client error:', err));
-client.login(TOKEN).catch(err => process.exit(1));
-process.on('unhandledRejection', (reason) => console.error('Unhandled Rejection:', reason));
-
-client.on('error', (err) => {
-  console.error('Discord client error:', err);
-});
-
-client.login(TOKEN).catch(err => {
-  console.error('Failed to login with provided token:', err);
-  process.exit(1);
-});
-
-// Global handler for unhandled promise rejections to aid debugging in deployment environments
-process.on('unhandledRejection', (reason, p) => {
-  console.error('Unhandled Rejection at:', p, 'reason:', reason);
+app.listen(PORT, () => {
+    console.log(`Server running on http://localhost:${PORT}`);
 });
