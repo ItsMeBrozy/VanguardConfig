@@ -194,6 +194,23 @@ async function pollJoinRequests() {
     saveData(dbData);
 
     // Also check for status changes on existing applications
+    // 1. Check guild membership for pending apps (if they are in the guild, they are approved)
+    const guild = await client.guilds.fetch(guildId).catch(() => null);
+    if (guild) {
+      for (let i = 0; i < dbData.applications.length; i++) {
+        const app = dbData.applications[i];
+        if (app.status === 'pending') {
+          const isMember = await guild.members.fetch(app.userId).catch(() => null);
+          if (isMember) {
+            app.status = 'approved';
+            console.log(`[POLL] Found ${app.username} already in guild, marking as approved.`);
+            saveData(dbData);
+          }
+        }
+      }
+    }
+
+    // 2. Check for status changes in the returned list
     for (const req of requestList) {
       const userId = req.user?.id || req.user_id;
       if (!userId) continue;
@@ -354,6 +371,19 @@ client.on('interactionCreate', async (interaction) => {
       modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
       await interaction.showModal(modal);
     }
+  }
+});
+
+client.on('guildMemberAdd', async (member) => {
+  console.log(`[MEMBER JOIN] ${member.user.username} joined the server.`);
+  const dbData = loadData();
+  
+  // Find if they had a pending application
+  const appIndex = dbData.applications.findIndex(a => a.userId === member.user.id && a.status === 'pending');
+  if (appIndex !== -1) {
+    dbData.applications[appIndex].status = 'approved';
+    saveData(dbData);
+    console.log(`[MEMBER JOIN] Marked application for ${member.user.username} as approved because they joined.`);
   }
 });
 
