@@ -4,11 +4,22 @@ const path = require('path');
 const DATA_FILE = path.join(__dirname, 'data.json');
 
 function loadData() {
-  if (!fs.existsSync(DATA_FILE)) return { loops: {}, checks: {} };
+  const defaultData = { 
+    loops: {}, 
+    checks: {}, 
+    applications: [], 
+    config: {
+      reviewChannelId: null,
+      logsChannelId: null
+    } 
+  };
+  
+  if (!fs.existsSync(DATA_FILE)) return defaultData;
   try {
-    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+    const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+    return { ...defaultData, ...data };
   } catch {
-    return { loops: {}, checks: {} };
+    return defaultData;
   }
 }
 
