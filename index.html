@@ -54,9 +54,10 @@
 
         async function fetchData() {
             try {
+                const timestamp = Date.now();
                 const [appsRes, statsRes] = await Promise.all([
-                    fetch('/api/applications'),
-                    fetch('/api/stats')
+                    fetch(`/api/applications?t=${timestamp}`),
+                    fetch(`/api/stats?t=${timestamp}`)
                 ]);
                 
                 allApps = await appsRes.json();
@@ -105,6 +106,34 @@
                 const date = new Date(app.timestamp).toLocaleString();
                 const card = document.createElement('div');
                 card.className = `app-card ${app.status}`;
+                
+                // Construct body HTML based on whether we have dynamic fields or legacy ones
+                let bodyHtml = '';
+                if (app.fields && Array.isArray(app.fields)) {
+                    bodyHtml = app.fields.map(f => `
+                        <div class="app-field">
+                            <span class="field-label">${f.label}</span>
+                            <span class="field-value">${f.response}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    // Legacy support
+                    bodyHtml = `
+                        <div class="app-field">
+                            <span class="field-label">Name / Nickname</span>
+                            <span class="field-value">${app.name || 'N/A'}</span>
+                        </div>
+                        <div class="app-field">
+                            <span class="field-label">Age</span>
+                            <span class="field-value">${app.age || 'N/A'}</span>
+                        </div>
+                        <div class="app-field">
+                            <span class="field-label">Reason for joining</span>
+                            <span class="field-value">${app.reason || 'N/A'}</span>
+                        </div>
+                    `;
+                }
+
                 card.innerHTML = `
                     <div class="app-header">
                         <img src="${app.avatar || 'https://cdn.discordapp.com/embed/avatars/0.png'}" class="user-avatar" alt="Avatar">
@@ -115,18 +144,7 @@
                         <span class="app-status status-${app.status}">${app.status}</span>
                     </div>
                     <div class="app-body">
-                        <div class="app-field">
-                            <span class="field-label">Name / Nickname</span>
-                            <span class="field-value">${app.name}</span>
-                        </div>
-                        <div class="app-field">
-                            <span class="field-label">Age</span>
-                            <span class="field-value">${app.age}</span>
-                        </div>
-                        <div class="app-field">
-                            <span class="field-label">Reason for joining</span>
-                            <span class="field-value">${app.reason}</span>
-                        </div>
+                        ${bodyHtml}
                         ${app.rejectReason ? `
                             <div class="reject-reason">
                                 <strong>Rejection Reason:</strong> ${app.rejectReason}
