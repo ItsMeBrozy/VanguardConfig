@@ -247,52 +247,114 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-// Handle Discord Native "Apply to Join" (Guild Join Requests)
-client.on('raw', async (packet) => {
-  if (packet.t === 'GUILD_JOIN_REQUEST_CREATE') {
-    const data = packet.d;
-    const { user, form_responses, created_at } = data;
-    
-    // Extract questions and answers
-    const answers = (form_responses || []).map(fr => ({
-      label: fr.label,
-      response: fr.response
-    }));
-
-    const dbData = loadData();
-    const appId = `native_${user.id}_${Date.now()}`;
-    
-    const newApp = {
-      id: appId,
-      userId: user.id,
-      username: `${user.username}${user.discriminator !== '0' ? '#' + user.discriminator : ''}`,
-      avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png` : null,
-      fields: answers,
-      status: 'pending',
-      timestamp: new Date(created_at).getTime()
-    };
-
-    dbData.applications.push(newApp);
-    saveData(dbData);
-    console.log(`New native join request from ${user.username}`);
+// Debug: Log ALL gateway events to see what Discord is sending
+client.on('raw', (packet) => {
+  // Only log join-request-related or member-related events
+  if (packet.t && (
+    packet.t.includes('JOIN_REQUEST') || 
+    packet.t.includes('MEMBER') ||
+    packet.t.includes('GUILD_MEMBER')
+  )) {
+    console.log(`[RAW EVENT] ${packet.t}`, JSON.stringify(packet.d, null, 2));
   }
+});
 
-  if (packet.t === 'GUILD_JOIN_REQUEST_UPDATE') {
-    const data = packet.d;
-    const { user, status } = data;
-    
+// Handle Discord Native "Apply to Join" via WebSocket manager (more reliable)
+client.ws.on('GUILD_JOIN_REQUEST_CREATE', (data) => {
+  console.log('[JOIN REQUEST CREATE] Received:', JSON.stringify(data, null, 2));
+  
+  const user = data.request?.user || data.user || {};
+  const formResponses = data.request?.form_responses || data.form_responses || [];
+  const createdAt = data.request?.created_at || data.created_at || new Date().toISOString();
+
+  // Extract questions and answers
+  const answers = formResponses.map(fr => ({
+    label: fr.label || fr.field?.label || 'Question',
+    response: fr.response || fr.answer || ''
+  }));
+
+  const dbData = loadData();
+  const appId = `native_${user.id}_${Date.now()}`;
+  
+  const newApp = {
+    id: appId,
+    userId: user.id,
+    username: user.username || user.global_name || 'Unknown',
+    avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png` : null,
+    fields: answers,
+    status: 'pending',
+    timestamp: new Date(createdAt).getTime() || Date.now()
+  };
+
+  dbData.applications.push(newApp);
+  saveData(dbData);
+  console.log(`[JOIN REQUEST] Saved application from ${newApp.username} with ${answers.length} fields`);
+});
+
+client.ws.on('GUILD_JOIN_REQUEST_UPDATE', (data) => {
+  console.log('[JOIN REQUEST UPDATE] Received:', JSON.stringify(data, null, 2));
+  
+  const user = data.request?.user || data.user || {};
+  const status = data.request?.status || data.status;
+  
+  const dbData = loadData();
+  const appIndex = dbData.applications
+    .slice()
+    .reverse()
+    .findIndex(a => a.userId === user.id && a.status === 'pending');
+  
+  if (appIndex !== -1) {
+    const actualIndex = dbData.applications.length - 1 - appIndex;
+    dbData.applications[actualIndex].status = status === 'APPROVED' ? 'approved' : 'rejected';
+    saveData(dbData);
+    console.log(`[JOIN REQUEST] Updated ${user.username}: ${status}`);
+  }
+});
+
+client.ws.on('GUILD_JOIN_REQUEST_DELETE', (data) => {
+  console.log('[JOIN REQUEST DELETE] Received:', JSON.stringify(data, null, 2));
+});
+
+// Also catch new members who joined via "Apply to Join" (they arrive with pending=true)
+client.on('guildMemberAdd', async (member) => {
+  console.log(`[MEMBER ADD] ${member.user.username} joined (pending: ${member.pending})`);
+  
+  if (member.pending) {
+    // This member joined via screening/apply-to-join
     const dbData = loadData();
-    // Find the latest pending application for this user
-    const appIndex = dbData.applications
-      .slice()
-      .reverse()
-      .findIndex(a => a.userId === user.id && a.status === 'pending');
     
-    if (appIndex !== -1) {
-      const actualIndex = dbData.applications.length - 1 - appIndex;
-      dbData.applications[actualIndex].status = status === 'approved' ? 'approved' : 'rejected';
+    // Check if we already have this user from a raw event
+    const existing = dbData.applications.find(a => a.userId === member.user.id && a.status === 'pending');
+    if (!existing) {
+      const appId = `member_${member.user.id}_${Date.now()}`;
+      const newApp = {
+        id: appId,
+        userId: member.user.id,
+        username: member.user.username,
+        avatar: member.user.displayAvatarURL(),
+        fields: [{ label: 'Status', response: 'Awaiting screening approval' }],
+        status: 'pending',
+        timestamp: Date.now()
+      };
+      dbData.applications.push(newApp);
       saveData(dbData);
-      console.log(`Native join request updated for ${user.username}: ${status}`);
+      console.log(`[MEMBER ADD] Saved pending application for ${member.user.username}`);
+    }
+  }
+});
+
+// Catch when a pending member passes screening
+client.on('guildMemberUpdate', async (oldMember, newMember) => {
+  if (oldMember.pending && !newMember.pending) {
+    console.log(`[MEMBER UPDATE] ${newMember.user.username} passed screening`);
+    const dbData = loadData();
+    const appIndex = dbData.applications.findIndex(
+      a => a.userId === newMember.user.id && a.status === 'pending'
+    );
+    if (appIndex !== -1) {
+      dbData.applications[appIndex].status = 'approved';
+      saveData(dbData);
+      console.log(`[MEMBER UPDATE] Marked ${newMember.user.username} as approved`);
     }
   }
 });
