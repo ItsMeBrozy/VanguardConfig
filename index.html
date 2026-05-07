@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vanguard FC | Application Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo">
+                <h1>VANGUARD FC</h1>
+            </div>
+            <div class="refresh">
+                <button class="tab-btn" onclick="fetchData()">Refresh Dashboard</button>
+            </div>
+        </header>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <span class="stat-value" id="total-apps">0</span>
+                <span class="stat-label">Total Apps</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value" id="pending-apps" style="color: var(--warning)">0</span>
+                <span class="stat-label">Pending</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value" id="approved-apps" style="color: var(--success)">0</span>
+                <span class="stat-label">Approved</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value" id="rejected-apps" style="color: var(--danger)">0</span>
+                <span class="stat-label">Rejected</span>
+            </div>
+        </div>
+
+        <div class="tabs">
+            <button class="tab-btn active" onclick="filterApps('all')">All</button>
+            <button class="tab-btn" onclick="filterApps('pending')">Pending</button>
+            <button class="tab-btn" onclick="filterApps('approved')">Approved</button>
+            <button class="tab-btn" onclick="filterApps('rejected')">Rejected</button>
+        </div>
+
+        <div class="applications-grid" id="apps-container">
+            <!-- Applications will be loaded here -->
+        </div>
+    </div>
+
+    <script>
+        let allApps = [];
+        let currentFilter = 'all';
+
+        async function fetchData() {
+            try {
+                const [appsRes, statsRes] = await Promise.all([
+                    fetch('/api/applications'),
+                    fetch('/api/stats')
+                ]);
+                
+                allApps = await appsRes.json();
+                const stats = await statsRes.json();
+
+                document.getElementById('total-apps').innerText = stats.total;
+                document.getElementById('pending-apps').innerText = stats.pending;
+                document.getElementById('approved-apps').innerText = stats.approved;
+                document.getElementById('rejected-apps').innerText = stats.rejected;
+
+                renderApps();
+            } catch (error) {
+                console.error('Error fetching data:', error);
+            }
+        }
+
+        function filterApps(filter) {
+            currentFilter = filter;
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                if (btn.innerText.toLowerCase() === filter.toLowerCase()) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+            renderApps();
+        }
+
+        function renderApps() {
+            const container = document.getElementById('apps-container');
+            container.innerHTML = '';
+
+            const filtered = currentFilter === 'all' 
+                ? allApps 
+                : allApps.filter(a => a.status === currentFilter);
+
+            if (filtered.length === 0) {
+                container.innerHTML = '<p style="text-align: center; grid-column: 1/-1; color: var(--text-muted);">No applications found.</p>';
+                return;
+            }
+
+            // Sort by timestamp (newest first)
+            filtered.sort((a, b) => b.timestamp - a.timestamp);
+
+            filtered.forEach(app => {
+                const date = new Date(app.timestamp).toLocaleString();
+                const card = document.createElement('div');
+                card.className = `app-card ${app.status}`;
+                card.innerHTML = `
+                    <div class="app-header">
+                        <img src="${app.avatar || 'https://cdn.discordapp.com/embed/avatars/0.png'}" class="user-avatar" alt="Avatar">
+                        <div class="user-info">
+                            <h3>${app.username}</h3>
+                            <span style="font-size: 0.8rem; color: var(--text-muted);">${date}</span>
+                        </div>
+                        <span class="app-status status-${app.status}">${app.status}</span>
+                    </div>
+                    <div class="app-body">
+                        <div class="app-field">
+                            <span class="field-label">Name / Nickname</span>
+                            <span class="field-value">${app.name}</span>
+                        </div>
+                        <div class="app-field">
+                            <span class="field-label">Age</span>
+                            <span class="field-value">${app.age}</span>
+                        </div>
+                        <div class="app-field">
+                            <span class="field-label">Reason for joining</span>
+                            <span class="field-value">${app.reason}</span>
+                        </div>
+                        ${app.rejectReason ? `
+                            <div class="reject-reason">
+                                <strong>Rejection Reason:</strong> ${app.rejectReason}
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        // Initial fetch and polling every 10 seconds
+        fetchData();
+        setInterval(fetchData, 10000);
+    </script>
+</body>
+</html>
