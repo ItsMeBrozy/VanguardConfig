@@ -393,7 +393,9 @@ client.on('guildMemberRemove', async (member) => {
   let updated = false;
   
   dbData.applications.forEach(app => {
-    if (app.userId === member.user.id && app.status !== 'left') {
+    // Only mark as 'left' if they were previously 'approved'
+    // We don't want to overwrite 'rejected' history
+    if (app.userId === member.user.id && app.status === 'approved') {
       app.status = 'left';
       updated = true;
     }
