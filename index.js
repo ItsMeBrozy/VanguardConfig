@@ -163,9 +163,9 @@ async function pollJoinRequests() {
       
       if (!userId) continue;
 
-      // Check if we already tracked this application
-      const existing = dbData.applications.find(a => a.userId === userId);
-      if (existing) continue;
+      // Check if we already have a PENDING application for this user
+      const existingPending = dbData.applications.find(a => a.userId === userId && a.status === 'pending');
+      if (existingPending) continue;
 
       // Extract form responses
       const formResponses = req.form_responses || req.application_responses || [];
@@ -218,7 +218,7 @@ async function pollJoinRequests() {
       const reqStatus = (req.status || '').toLowerCase();
       const appStatus = reqStatus === 'approved' ? 'approved' : reqStatus === 'rejected' ? 'rejected' : 'pending';
 
-      const dbApp = dbData.applications.find(a => a.userId === userId);
+      const dbApp = dbData.applications.find(a => a.userId === userId && a.status === 'pending');
       if (dbApp && dbApp.status !== appStatus && appStatus !== 'pending') {
         dbApp.status = appStatus;
         saveData(dbData);
@@ -235,11 +235,11 @@ client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
   await registerCommands();
 
-  // Poll for join requests immediately and then every 30 seconds
+  // Poll for join requests immediately and then every 10 seconds
   setTimeout(() => {
     console.log('[POLL] Starting join request polling...');
     pollJoinRequests();
-    setInterval(pollJoinRequests, 30000);
+    setInterval(pollJoinRequests, 10000);
   }, 3000);
 
   setInterval(async () => {
