@@ -147,37 +147,40 @@ header {
 .app-card.pending::before { background: var(--warning); }
 .app-card.approved::before { background: var(--success); }
 .app-card.rejected::before { background: var(--danger); }
+.app-card.left::before { background: #000; }
 
-.app-header {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
+.app-card.left {
+    background: #000000;
+    border-color: rgba(255, 255, 255, 0.2);
 }
 
-.user-avatar {
-    width: 50px;
-    height: 50px;
-    border-radius: 50%;
-    border: 2px solid rgba(255, 255, 255, 0.1);
+.search-container {
+    margin-bottom: 2rem;
+    animation: fadeInDown 1s ease-out;
 }
 
-.user-info h3 {
-    font-size: 1.1rem;
-    font-weight: 600;
+.search-bar {
+    width: 100%;
+    padding: 1rem 1.5rem;
+    background: var(--card-bg);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 1rem;
+    color: #fff;
+    font-size: 1rem;
+    backdrop-filter: blur(12px);
+    transition: all 0.3s ease;
 }
 
-.app-status {
-    margin-left: auto;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    font-weight: 700;
-    padding: 0.25rem 0.75rem;
-    border-radius: 2rem;
+.search-bar:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 15px var(--primary-glow);
 }
 
 .status-pending { background: rgba(245, 158, 11, 0.2); color: var(--warning); }
 .status-approved { background: rgba(34, 197, 94, 0.2); color: var(--success); }
 .status-rejected { background: rgba(239, 68, 68, 0.2); color: var(--danger); }
+.status-left { background: rgba(255, 255, 255, 0.1); color: #fff; }
 
 .app-body {
     background: rgba(255, 255, 255, 0.03);
