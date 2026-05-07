@@ -165,71 +165,10 @@ client.on('interactionCreate', async (interaction) => {
       saveData(data);
       await interaction.reply({ content: `Applications will be sent to ${channel}.`, ephemeral: true });
     }
-    }
   }
 
-  // Native Discord Join Requests are handled via 'raw' event below
-});
-
-// Handle Discord Native "Apply to Join" (Guild Join Requests)
-client.on('raw', async (packet) => {
-  if (packet.t === 'GUILD_JOIN_REQUEST_CREATE') {
-    const data = packet.d;
-    const { user, form_responses, created_at, guild_id } = data;
-    
-    // Extract questions and answers
-    const answers = (form_responses || []).map(fr => ({
-      label: fr.label,
-      response: fr.response
-    }));
-
-    const dbData = loadData();
-    const appId = `native_${user.id}_${Date.now()}`;
-    
-    const newApp = {
-      id: appId,
-      userId: user.id,
-      username: `${user.username}${user.discriminator !== '0' ? '#' + user.discriminator : ''}`,
-      avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png` : null,
-      fields: answers, // Dynamic fields from native screening
-      status: 'pending',
-      timestamp: new Date(created_at).getTime()
-    };
-
-    dbData.applications.push(newApp);
-    saveData(dbData);
-
-    console.log(`New native join request from ${user.username}`);
-  }
-
-  if (packet.t === 'GUILD_JOIN_REQUEST_UPDATE') {
-    const data = packet.d;
-    const { user, status } = data;
-    
-    const dbData = loadData();
-    // Find the latest pending application for this user
-    const appIndex = dbData.applications
-      .slice()
-      .reverse()
-      .findIndex(a => a.userId === user.id && a.status === 'pending');
-    
-    if (appIndex !== -1) {
-      const actualIndex = dbData.applications.length - 1 - appIndex;
-      dbData.applications[actualIndex].status = status === 'approved' ? 'approved' : 'rejected';
-      saveData(dbData);
-      console.log(`Native join request updated for ${user.username}: ${status}`);
-    }
-  }
-
-  if (packet.t === 'GUILD_JOIN_REQUEST_DELETE') {
-    const data = packet.d;
-    const { user_id } = data;
-    const dbData = loadData();
-    // If request is deleted (canceled), we might want to remove it or mark it
-    // For now, let's just keep it but maybe we don't need to do anything
-  }
-});
-
+  // Handle Modal Submit
+  if (interaction.isModalSubmit()) {
     if (interaction.customId.startsWith('reject_reason_')) {
       const appId = interaction.customId.replace('reject_reason_', '');
       const reason = interaction.fields.getTextInputValue('reason');
@@ -304,6 +243,56 @@ client.on('raw', async (packet) => {
 
       modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
       await interaction.showModal(modal);
+    }
+  }
+});
+
+// Handle Discord Native "Apply to Join" (Guild Join Requests)
+client.on('raw', async (packet) => {
+  if (packet.t === 'GUILD_JOIN_REQUEST_CREATE') {
+    const data = packet.d;
+    const { user, form_responses, created_at } = data;
+    
+    // Extract questions and answers
+    const answers = (form_responses || []).map(fr => ({
+      label: fr.label,
+      response: fr.response
+    }));
+
+    const dbData = loadData();
+    const appId = `native_${user.id}_${Date.now()}`;
+    
+    const newApp = {
+      id: appId,
+      userId: user.id,
+      username: `${user.username}${user.discriminator !== '0' ? '#' + user.discriminator : ''}`,
+      avatar: user.avatar ? `https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png` : null,
+      fields: answers,
+      status: 'pending',
+      timestamp: new Date(created_at).getTime()
+    };
+
+    dbData.applications.push(newApp);
+    saveData(dbData);
+    console.log(`New native join request from ${user.username}`);
+  }
+
+  if (packet.t === 'GUILD_JOIN_REQUEST_UPDATE') {
+    const data = packet.d;
+    const { user, status } = data;
+    
+    const dbData = loadData();
+    // Find the latest pending application for this user
+    const appIndex = dbData.applications
+      .slice()
+      .reverse()
+      .findIndex(a => a.userId === user.id && a.status === 'pending');
+    
+    if (appIndex !== -1) {
+      const actualIndex = dbData.applications.length - 1 - appIndex;
+      dbData.applications[actualIndex].status = status === 'approved' ? 'approved' : 'rejected';
+      saveData(dbData);
+      console.log(`Native join request updated for ${user.username}: ${status}`);
     }
   }
 });
