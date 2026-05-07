@@ -34,6 +34,14 @@
                 <span class="stat-value" id="rejected-apps" style="color: var(--danger)">0</span>
                 <span class="stat-label">Rejected</span>
             </div>
+            <div class="stat-card">
+                <span class="stat-value" id="left-apps" style="color: #fff">0</span>
+                <span class="stat-label">Kicked/Left</span>
+            </div>
+        </div>
+
+        <div class="search-container">
+            <input type="text" id="search-input" class="search-bar" placeholder="Search by username or user ID..." oninput="renderApps()">
         </div>
 
         <div class="tabs">
@@ -41,6 +49,7 @@
             <button class="tab-btn" onclick="filterApps('pending')">Pending</button>
             <button class="tab-btn" onclick="filterApps('approved')">Approved</button>
             <button class="tab-btn" onclick="filterApps('rejected')">Rejected</button>
+            <button class="tab-btn" onclick="filterApps('left')">Kicked/Left</button>
         </div>
 
         <div class="applications-grid" id="apps-container">
@@ -67,6 +76,7 @@
                 document.getElementById('pending-apps').innerText = stats.pending;
                 document.getElementById('approved-apps').innerText = stats.approved;
                 document.getElementById('rejected-apps').innerText = stats.rejected;
+                document.getElementById('left-apps').innerText = stats.left || 0;
 
                 renderApps();
             } catch (error) {
@@ -77,7 +87,8 @@
         function filterApps(filter) {
             currentFilter = filter;
             document.querySelectorAll('.tab-btn').forEach(btn => {
-                if (btn.innerText.toLowerCase() === filter.toLowerCase()) {
+                const btnText = btn.innerText.toLowerCase();
+                if (btnText === filter.toLowerCase() || (btnText === 'kicked/left' && filter === 'left')) {
                     btn.classList.add('active');
                 } else {
                     btn.classList.remove('active');
@@ -88,11 +99,20 @@
 
         function renderApps() {
             const container = document.getElementById('apps-container');
+            const searchQuery = document.getElementById('search-input').value.toLowerCase();
             container.innerHTML = '';
 
-            const filtered = currentFilter === 'all' 
+            let filtered = currentFilter === 'all' 
                 ? allApps 
                 : allApps.filter(a => a.status === currentFilter);
+
+            // Apply search filter
+            if (searchQuery) {
+                filtered = filtered.filter(a => 
+                    a.username.toLowerCase().includes(searchQuery) || 
+                    a.userId.includes(searchQuery)
+                );
+            }
 
             if (filtered.length === 0) {
                 container.innerHTML = '<p style="text-align: center; grid-column: 1/-1; color: var(--text-muted);">No applications found.</p>';
@@ -134,17 +154,23 @@
                     `;
                 }
 
+                const statusLabel = app.status === 'left' ? 'Kicked/Left' : app.status;
+
                 card.innerHTML = `
-                    <div class="app-header">
-                        <img src="${app.avatar || 'https://cdn.discordapp.com/embed/avatars/0.png'}" class="user-avatar" alt="Avatar">
+                    <div class="app-header" style="display: flex; align-items: center; gap: 1rem;">
+                        <img src="${app.avatar || 'https://cdn.discordapp.com/embed/avatars/0.png'}" class="user-avatar" style="width: 50px; height: 50px; border-radius: 50%;" alt="Avatar">
                         <div class="user-info">
-                            <h3>${app.username}</h3>
+                            <h3 style="margin: 0; font-size: 1.1rem;">${app.username}</h3>
                             <span style="font-size: 0.8rem; color: var(--text-muted);">${date}</span>
                         </div>
-                        <span class="app-status status-${app.status}">${app.status}</span>
+                        <span class="app-status status-${app.status}" style="margin-left: auto; font-size: 0.75rem; text-transform: uppercase; font-weight: 700; padding: 0.25rem 0.75rem; border-radius: 2rem;">${statusLabel}</span>
                     </div>
                     <div class="app-body">
                         ${bodyHtml}
+                        <div class="app-field" style="margin-top: 10px; border-top: 1px solid rgba(255,255,255,0.05); padding-top: 5px;">
+                            <span class="field-label">User ID</span>
+                            <span class="field-value" style="font-family: monospace; font-size: 0.8rem;">${app.userId}</span>
+                        </div>
                         ${app.rejectReason ? `
                             <div class="reject-reason">
                                 <strong>Rejection Reason:</strong> ${app.rejectReason}
