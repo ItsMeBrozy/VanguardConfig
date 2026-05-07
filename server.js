@@ -25,7 +25,8 @@ app.get('/api/stats', (req, res) => {
     total: apps.length,
     pending: apps.filter(a => a.status === 'pending').length,
     approved: apps.filter(a => a.status === 'approved').length,
-    rejected: apps.filter(a => a.status === 'rejected').length
+    rejected: apps.filter(a => a.status === 'rejected').length,
+    left: apps.filter(a => a.status === 'left').length
   };
   
   res.json(stats);
